@@ -35,67 +35,61 @@ fn line_delimiter() -> String {
 }
 
 fn center_text(text: &str) -> String {
-    let mut padding_width: i32;
-    let mut centered_string: String = "".to_string();
+    let terminal_width = terminal_width();
+    let text_width = text.len();
+    let padding_width = terminal_width.saturating_sub(text_width) / 2;
 
-    match ((terminal_width() / 2) - (text.len() / 2)).try_into() {
-        Err(_e) => padding_width = 0,
-        Ok(value) => padding_width = value,
-    }
-
-    if padding_width < 0 {
-        padding_width = 0;
-    }
-
-    for _i in 0..padding_width {
-        centered_string += " ";
-    }
-
-    centered_string += text;
+    let mut centered_string = String::new();
+    centered_string.extend(std::iter::repeat(' ').take(padding_width));
+    centered_string.push_str(text);
 
     centered_string
 }
 
 fn pad_to_length(text: &str, len: usize) -> String {
-    let mut pad_size: i32;
+    let pad_size = len.saturating_sub(text.len());
     let mut padded_string = String::from(text);
-
-    match (len - text.len()).try_into() {
-        Err(_e) => pad_size = 0,
-        Ok(value) => pad_size = value,
-    }
-
-    if pad_size < 0 {
-        pad_size = 0;
-    }
-
-    for _i in 0..pad_size {
-        padded_string += " ";
-    }
+    padded_string.extend(std::iter::repeat(' ').take(pad_size));
 
     padded_string
 }
 
 fn line_wrap(text: &str, prefix_size: usize) -> String {
-    let mut this_line = "".to_string();
-    let mut formatted_string = "".to_string();
-    let max_line_size: usize = terminal_width() - prefix_size;
+    let max_line_size = terminal_width().saturating_sub(prefix_size).max(1);
+    let mut formatted_lines: Vec<String> = Vec::new();
+    let mut current_line = String::new();
 
     for word in text.split_whitespace() {
-        if (this_line.len() + word.len()) < max_line_size {
-            this_line = this_line + word + " ";
+        if current_line.is_empty() {
+            current_line.push_str(word);
+            continue;
+        }
+
+        if current_line.len() + 1 + word.len() <= max_line_size {
+            current_line.push(' ');
+            current_line.push_str(word);
         } else {
-            formatted_string = formatted_string + &this_line + "\n";
-            for _i in 0..prefix_size {
-                formatted_string += " ";
-            }
-            this_line = word.to_string() + " ";
+            formatted_lines.push(current_line);
+            current_line = word.to_string();
         }
     }
 
-    formatted_string = formatted_string + &this_line;
+    if !current_line.is_empty() {
+        formatted_lines.push(current_line);
+    }
 
-    formatted_string.trim().to_string()
+    formatted_lines
+        .into_iter()
+        .enumerate()
+        .map(|(index, line)| {
+            if index == 0 {
+                line
+            } else {
+                format!("{}{}", " ".repeat(prefix_size), line)
+            }
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
 }
 
 fn print_column_headers(col1: &str, col2: &str, col3: &str) {

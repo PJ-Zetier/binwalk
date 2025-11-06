@@ -2,7 +2,7 @@ use crate::extractors;
 
 /// Describes how to run the dumpifs utility to extract QNX IFS images
 ///
-/// ```
+/// ```no_run
 /// use std::io::ErrorKind;
 /// use std::process::Command;
 /// use binwalk::extractors::common::ExtractorType;

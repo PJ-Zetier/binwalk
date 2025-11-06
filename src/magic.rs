@@ -300,7 +300,7 @@ pub fn patterns() -> Vec<signatures::common::Signature> {
             magic: signatures::cramfs::cramfs_magic(),
             parser: signatures::cramfs::cramfs_parser,
             description: signatures::cramfs::DESCRIPTION.to_string(),
-            extractor: Some(extractors::sevenzip::sevenzip_extractor()),
+            extractor: Some(extractors::cramfs::cramfs_extractor()),
         },
         // QNX IFS
         // TODO: The signature and extractor are untested. Need a sample IFS image.
@@ -1216,7 +1216,7 @@ pub fn patterns() -> Vec<signatures::common::Signature> {
             magic: signatures::arj::arj_magic(),
             parser: signatures::arj::arj_parser,
             description: signatures::arj::DESCRIPTION.to_string(),
-            extractor: Some(extractors::sevenzip::sevenzip_extractor()),
+            extractor: Some(extractors::arj::arj_extractor()),
         },
         // MD5 hashes
         signatures::common::Signature {

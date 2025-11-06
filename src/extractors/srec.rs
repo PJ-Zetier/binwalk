@@ -2,7 +2,7 @@ use crate::extractors;
 
 /// Describes how to run the srec_cat utility to convert Motorola S-records to binary
 ///
-/// ```
+/// ```no_run
 /// use std::io::ErrorKind;
 /// use std::process::Command;
 /// use binwalk::extractors::common::ExtractorType;

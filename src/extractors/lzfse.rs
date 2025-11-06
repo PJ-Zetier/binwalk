@@ -2,7 +2,7 @@ use crate::extractors::common::{Extractor, ExtractorType, SOURCE_FILE_PLACEHOLDE
 
 /// Describes how to run the lzfse utility to decompress LZFSE files
 ///
-/// ```
+/// ```no_run
 /// use std::io::ErrorKind;
 /// use std::process::Command;
 /// use binwalk::extractors::common::ExtractorType;

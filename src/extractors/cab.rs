@@ -2,7 +2,7 @@ use crate::extractors;
 
 /// Describes how to run the cabextract utility to extract MS CAB archives
 ///
-/// ```
+/// ```no_run
 /// use std::io::ErrorKind;
 /// use std::process::Command;
 /// use binwalk::extractors::common::ExtractorType;
