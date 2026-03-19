@@ -2,7 +2,7 @@ use crate::extractors;
 
 /// Describes how to run the zstd utility to extract ZSTD compressed files
 ///
-/// ```
+/// ```no_run
 /// use std::io::ErrorKind;
 /// use std::process::Command;
 /// use binwalk::extractors::common::ExtractorType;

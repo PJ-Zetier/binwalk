@@ -1,40 +1,74 @@
-use crate::extractors;
+use crate::extractors::common::{Chroot, ExtractionResult, Extractor, ExtractorType};
 
-/// Describes how to run the 7z utility, supports multiple file formats
-///
-/// ```
-/// use std::io::ErrorKind;
-/// use std::process::Command;
-/// use binwalk::extractors::common::ExtractorType;
-/// use binwalk::extractors::sevenzip::sevenzip_extractor;
-///
-/// match sevenzip_extractor().utility {
-///     ExtractorType::None => panic!("Invalid extractor type of None"),
-///     ExtractorType::Internal(func) => println!("Internal extractor OK: {:?}", func),
-///     ExtractorType::External(cmd) => {
-///         if let Err(e) = Command::new(&cmd).output() {
-///             if e.kind() == ErrorKind::NotFound {
-///                 panic!("External extractor '{}' not found", cmd);
-///             } else {
-///                 panic!("Failed to execute external extractor '{}': {}", cmd, e);
-///             }
-///         }
-///     }
-/// }
-/// ```
-pub fn sevenzip_extractor() -> extractors::common::Extractor {
-    extractors::common::Extractor {
-        utility: extractors::common::ExtractorType::External("7zz".to_string()),
-        extension: "bin".to_string(),
-        arguments: vec![
-            "x".to_string(),    // Perform extraction
-            "-y".to_string(),   // Assume Yes to all questions
-            "-o.".to_string(),  // Output to current working directory
-            "-p''".to_string(), // Blank password to prevent hangs if archives are password protected
-            extractors::common::SOURCE_FILE_PLACEHOLDER.to_string(),
-        ],
-        // If there is trailing data after the compressed data, extraction will happen but exit code will be 2
-        exit_codes: vec![0, 2],
+const OUTPUT_BASENAME: &str = "archive";
+
+/// Provides an internal extractor for 7-Zip archives by carving the archive data.
+pub fn sevenzip_extractor() -> Extractor {
+    Extractor {
+        utility: ExtractorType::Internal(extract_sevenzip_archive),
+        extension: "7z".to_string(),
         ..Default::default()
+    }
+}
+
+fn extract_sevenzip_archive(
+    file_data: &[u8],
+    offset: usize,
+    output_directory: Option<&str>,
+) -> ExtractionResult {
+    let mut result = ExtractionResult {
+        ..Default::default()
+    };
+
+    if offset >= file_data.len() {
+        return result;
+    }
+
+    let available = file_data.len() - offset;
+    result.size = Some(available);
+
+    match output_directory {
+        None => {
+            result.success = true;
+        }
+        Some(out_dir) => {
+            let chroot = Chroot::new(Some(out_dir));
+            let output_name = format!("{OUTPUT_BASENAME}_{offset:08x}.7z");
+            result.success = chroot.carve_file(&output_name, file_data, offset, available);
+        }
+    }
+
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::binwalk::Binwalk;
+    use crate::extractors::common::ExtractorType;
+
+    #[test]
+    fn dry_run_reports_available_size() {
+        let data = std::fs::read("tests/inputs/7z.bin").expect("test data");
+        let result = extract_sevenzip_archive(&data, 0, None);
+        assert!(result.success);
+        assert_eq!(result.size, Some(data.len()));
+    }
+
+    #[test]
+    fn extractor_is_internal() {
+        let binwalker = Binwalk::new();
+        let extractor = binwalker
+            .extractor_lookup_table
+            .get("7zip")
+            .expect("7zip extractor entry");
+
+        match extractor {
+            Some(definition) => match &definition.utility {
+                ExtractorType::Internal(_) => {}
+                other => panic!("expected internal extractor, found {other:?}"),
+            },
+            None => panic!("missing 7zip extractor"),
+        }
     }
 }

@@ -1,6 +1,7 @@
 use crate::signatures::common::SignatureResult;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::fs;
 use std::io::Write;
 use std::path;
@@ -27,12 +28,53 @@ pub struct ExtractionError;
 pub type InternalExtractor = fn(&[u8], usize, Option<&str>) -> ExtractionResult;
 
 /// Enum to define either an Internal or External extractor type
-#[derive(Debug, Default, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Default, Clone)]
 pub enum ExtractorType {
     External(String),
     Internal(InternalExtractor),
     #[default]
     None,
+}
+
+fn internal_extractor_addr(extractor: InternalExtractor) -> usize {
+    extractor as usize
+}
+
+impl PartialEq for ExtractorType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ExtractorType::External(a), ExtractorType::External(b)) => a == b,
+            (ExtractorType::Internal(a), ExtractorType::Internal(b)) => {
+                internal_extractor_addr(*a) == internal_extractor_addr(*b)
+            }
+            (ExtractorType::None, ExtractorType::None) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ExtractorType {}
+
+impl PartialOrd for ExtractorType {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ExtractorType {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (ExtractorType::None, ExtractorType::None) => Ordering::Equal,
+            (ExtractorType::None, _) => Ordering::Less,
+            (_, ExtractorType::None) => Ordering::Greater,
+            (ExtractorType::External(a), ExtractorType::External(b)) => a.cmp(b),
+            (ExtractorType::External(_), ExtractorType::Internal(_)) => Ordering::Less,
+            (ExtractorType::Internal(_), ExtractorType::External(_)) => Ordering::Greater,
+            (ExtractorType::Internal(a), ExtractorType::Internal(b)) => {
+                internal_extractor_addr(*a).cmp(&internal_extractor_addr(*b))
+            }
+        }
+    }
 }
 
 /// Describes extractors, both external and internal
@@ -92,17 +134,21 @@ impl Chroot {
     /// ```
     /// use binwalk::extractors::common::Chroot;
     ///
-    /// let chroot_dir = std::path::Path::new(&std::env::temp_dir())
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     ///
-    /// assert_eq!(&chroot.chroot_directory, &chroot_dir);
-    /// assert_eq!(std::path::Path::new(&chroot_dir).exists(), true);
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// assert_eq!(chroot.chroot_directory, chroot_dir_str);
+    /// assert!(chroot_dir.exists());
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// ```
     pub fn new(chroot_directory: Option<&str>) -> Chroot {
         let mut chroot_instance = Chroot {
@@ -156,13 +202,17 @@ impl Chroot {
     /// use binwalk::extractors::common::Chroot;
     /// use std::path::MAIN_SEPARATOR;
     ///
-    /// let chroot_dir = std::path::Path::new(&std::env::temp_dir())
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     ///
     /// let dir_name = "etc";
     /// let file_name = "passwd";
@@ -173,22 +223,22 @@ impl Chroot {
     /// let rel_path_file = format!("..{}..{}..{}{}", MAIN_SEPARATOR, MAIN_SEPARATOR, MAIN_SEPARATOR, file_name);
     ///
     /// let path1 = chroot.safe_path_join(&abs_path_dir, file_name);
-    /// let expected_path1 = std::path::Path::new(&chroot_dir).join(dir_name).join(file_name);
+    /// let expected_path1 = chroot_dir.join(dir_name).join(file_name);
     ///
     /// let path2 = chroot.safe_path_join(&abs_path_dir, &rel_path_file);
-    /// let expected_path2 = std::path::Path::new(&chroot_dir).join(file_name);
+    /// let expected_path2 = chroot_dir.join(file_name);
     ///
     /// let path3 = chroot.safe_path_join(&rel_path_dir, &abs_path_file);
-    /// let expected_path3 = std::path::Path::new(&chroot_dir).join(dir_name).join(file_name);
+    /// let expected_path3 = chroot_dir.join(dir_name).join(file_name);
     ///
-    /// let path4 = chroot.safe_path_join(&chroot_dir, &abs_path);
-    /// let expected_path4 = std::path::Path::new(&chroot_dir).join(dir_name).join(file_name);
+    /// let path4 = chroot.safe_path_join(chroot_dir_str, &abs_path);
+    /// let expected_path4 = chroot_dir.join(dir_name).join(file_name);
     ///
     /// assert_eq!(path1, expected_path1.display().to_string());
     /// assert_eq!(path2, expected_path2.display().to_string());
     /// assert_eq!(path3, expected_path3.display().to_string());
     /// assert_eq!(path4, expected_path4.display().to_string());
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// ```
     pub fn safe_path_join(&self, path1: impl Into<String>, path2: impl Into<String>) -> String {
         // Join and sanitize both paths; retain the leading '/' (if there is one)
@@ -221,17 +271,23 @@ impl Chroot {
     /// ```
     /// use binwalk::extractors::common::Chroot;
     ///
-    /// let chroot_dir = std::path::Path::new(&std::env::temp_dir())
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
     /// let file_name = "test.txt";
     ///
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     /// let path = chroot.chrooted_path(file_name);
     ///
-    /// assert_eq!(path, std::path::Path::new(&chroot_dir).join(file_name).display().to_string());
+    /// assert_eq!(path, chroot_dir.join(file_name).display().to_string());
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// ```
     pub fn chrooted_path(&self, file_path: impl Into<String>) -> String {
         self.safe_path_join(file_path, "".to_string())
@@ -249,17 +305,21 @@ impl Chroot {
     ///
     /// let file_name = "created_file.txt";
     ///
-    /// let chroot_dir = std::path::Path::new("tests")
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     ///
     /// assert_eq!(chroot.create_file(file_name, file_data), true);
-    /// assert_eq!(std::fs::read_to_string(std::path::Path::new(&chroot_dir).join(file_name))?, std::str::from_utf8(file_data)?);
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// assert_eq!(std::fs::read_to_string(chroot_dir.join(file_name))?, std::str::from_utf8(file_data)?);
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// # Ok(())
     /// # } _doctest_main_src_extractors_common_rs_213_0(); }
     /// ```
@@ -296,17 +356,21 @@ impl Chroot {
     ///
     /// let file_name = "carved_file.txt";
     ///
-    /// let chroot_dir = std::path::Path::new("tests")
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     ///
     /// assert_eq!(chroot.carve_file(file_name, data, 0, CARVE_SIZE), true);
-    /// assert_eq!(std::fs::read_to_string(std::path::Path::new(&chroot_dir).join(file_name))?, std::str::from_utf8(&data[0..CARVE_SIZE])?);
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// assert_eq!(std::fs::read_to_string(chroot_dir.join(file_name))?, std::str::from_utf8(&data[0..CARVE_SIZE])?);
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// # Ok(())
     /// } _doctest_main_src_extractors_common_rs_255_0(); }
     /// ```
@@ -355,21 +419,25 @@ impl Chroot {
     /// # fn main() { #[allow(non_snake_case)] fn _doctest_main_src_extractors_common_rs_312_0() -> Result<(), Box<dyn std::error::Error>> {
     /// use binwalk::extractors::common::Chroot;
     ///
-    /// let chroot_dir = std::path::Path::new("tests")
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
     /// let dev_major: usize = 1;
     /// let dev_minor: usize = 2;
     /// let file_name = "char_device";
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     ///
     /// assert_eq!(chroot.create_character_device(file_name, dev_major, dev_minor), true);
-    /// assert_eq!(std::fs::read_to_string(std::path::Path::new(&chroot_dir).join(file_name))?, "c 1 2");
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// assert_eq!(std::fs::read_to_string(chroot_dir.join(file_name))?, "c 1 2");
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// # Ok(())
     /// # } _doctest_main_src_extractors_common_rs_312_0(); }
     /// ```
@@ -392,21 +460,25 @@ impl Chroot {
     /// # fn main() { #[allow(non_snake_case)] fn _doctest_main_src_extractors_common_rs_345_0() -> Result<(), Box<dyn std::error::Error>> {
     /// use binwalk::extractors::common::Chroot;
     ///
-    /// let chroot_dir = std::path::Path::new("tests")
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
     /// let dev_major: usize = 1;
     /// let dev_minor: usize = 2;
     /// let file_name = "block_device";
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     ///
     /// assert_eq!(chroot.create_block_device(file_name, dev_major, dev_minor), true);
-    /// assert_eq!(std::fs::read_to_string(std::path::Path::new(&chroot_dir).join(file_name))?, "b 1 2");
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// assert_eq!(std::fs::read_to_string(chroot_dir.join(file_name))?, "b 1 2");
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// # Ok(())
     /// # } _doctest_main_src_extractors_common_rs_345_0(); }
     /// ```
@@ -429,19 +501,23 @@ impl Chroot {
     /// # fn main() { #[allow(non_snake_case)] fn _doctest_main_src_extractors_common_rs_377_0() -> Result<(), Box<dyn std::error::Error>> {
     /// use binwalk::extractors::common::Chroot;
     ///
-    /// let chroot_dir = std::path::Path::new("tests")
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
     /// let file_name = "fifo_file";
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     ///
     /// assert_eq!(chroot.create_fifo(file_name), true);
-    /// assert_eq!(std::fs::read_to_string(std::path::Path::new(&chroot_dir).join(file_name))?, "fifo");
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// assert_eq!(std::fs::read_to_string(chroot_dir.join(file_name))?, "fifo");
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// # Ok(())
     /// # } _doctest_main_src_extractors_common_rs_377_0(); }
     /// ```
@@ -459,19 +535,23 @@ impl Chroot {
     /// # fn main() { #[allow(non_snake_case)] fn _doctest_main_src_extractors_common_rs_401_0() -> Result<(), Box<dyn std::error::Error>> {
     /// use binwalk::extractors::common::Chroot;
     ///
-    /// let chroot_dir = std::path::Path::new("tests")
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
     /// let file_name = "socket_file";
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     ///
     /// assert_eq!(chroot.create_socket(file_name), true);
-    /// assert_eq!(std::fs::read_to_string(std::path::Path::new(&chroot_dir).join(file_name))?, "socket");
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// assert_eq!(std::fs::read_to_string(chroot_dir.join(file_name))?, "socket");
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// # Ok(())
     /// # } _doctest_main_src_extractors_common_rs_401_0(); }
     /// ```
@@ -489,20 +569,24 @@ impl Chroot {
     /// # fn main() { #[allow(non_snake_case)] fn _doctest_main_src_extractors_common_rs_426_0() -> Result<(), Box<dyn std::error::Error>> {
     /// use binwalk::extractors::common::Chroot;
     ///
-    /// let chroot_dir = std::path::Path::new("tests")
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
     /// let file_data: &[u8] = b"foobar";
     /// let file_name = "append.txt";
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     ///
     /// assert_eq!(chroot.append_to_file(file_name, file_data), true);
-    /// assert_eq!(std::fs::read_to_string(std::path::Path::new(&chroot_dir).join(file_name))?, std::str::from_utf8(file_data)?);
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// assert_eq!(std::fs::read_to_string(chroot_dir.join(file_name))?, std::str::from_utf8(file_data)?);
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// # Ok(())
     /// # } _doctest_main_src_extractors_common_rs_426_0(); }
     /// ```
@@ -543,19 +627,23 @@ impl Chroot {
     /// ```
     /// use binwalk::extractors::common::Chroot;
     ///
-    /// let chroot_dir = std::path::Path::new("tests")
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
     /// let dir_name = "my_directory";
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     ///
     /// assert_eq!(chroot.create_directory(dir_name), true);
-    /// assert_eq!(std::path::Path::new(&chroot_dir).join(dir_name).exists(), true);
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// assert!(chroot_dir.join(dir_name).exists());
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// ```
     pub fn create_directory(&self, dir_path: impl Into<String>) -> bool {
         let safe_dir_path: String = self.chrooted_path(dir_path);
@@ -581,20 +669,24 @@ impl Chroot {
     /// ```
     /// use binwalk::extractors::common::Chroot;
     ///
-    /// let chroot_dir = std::path::Path::new("tests")
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
     /// let dir_name = "my_directory";
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     ///
     /// assert_eq!(chroot.create_directory(dir_name), true);
     /// assert_eq!(chroot.remove_directory(dir_name), true);
     /// assert_eq!(chroot.remove_directory("i_dont_exist"), true);
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// ```
     pub fn remove_directory(&self, dir_path: impl Into<String>) -> bool {
         let safe_dir_path: String = self.chrooted_path(dir_path);
@@ -626,19 +718,23 @@ impl Chroot {
     /// ```
     /// use binwalk::extractors::common::Chroot;
     ///
-    /// let chroot_dir = std::path::Path::new("tests")
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
     /// let file_name = "runme.exe";
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     /// chroot.create_file(file_name, b"AAAA");
     ///
     /// assert_eq!(chroot.make_executable(file_name), true);
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// ```
     #[allow(dead_code)]
     pub fn make_executable(&self, file_path: impl Into<String>) -> bool {
@@ -688,23 +784,27 @@ impl Chroot {
     /// # fn main() { #[allow(non_snake_case)] fn _doctest_main_src_extractors_common_rs_571_0() -> Result<(), Box<dyn std::error::Error>> {
     /// use binwalk::extractors::common::Chroot;
     ///
-    /// let chroot_dir = std::path::Path::new("tests")
-    ///     .join("binwalk_unit_tests")
-    ///     .display()
-    ///     .to_string();
+    /// let chroot_dir = std::env::temp_dir().join(format!(
+    ///     "binwalk_unit_tests_{}",
+    ///     std::time::SystemTime::now()
+    ///         .duration_since(std::time::UNIX_EPOCH)
+    ///         .unwrap()
+    ///         .as_nanos()
+    /// ));
+    /// let chroot_dir_str = chroot_dir.to_str().unwrap();
     ///
     /// let symlink_name = "symlink";
     /// let target_path = "target";
     ///
-    /// let expected_symlink_path = std::path::Path::new(&chroot_dir).join(symlink_name);
-    /// let expected_target_path = std::path::Path::new(&chroot_dir).join(target_path);
+    /// let expected_symlink_path = chroot_dir.join(symlink_name);
+    /// let expected_target_path = chroot_dir.join(target_path);
     ///
-    /// # std::fs::remove_dir_all(&chroot_dir);
-    /// let chroot = Chroot::new(Some(&chroot_dir));
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
+    /// let chroot = Chroot::new(Some(chroot_dir_str));
     ///
     /// assert_eq!(chroot.create_symlink(symlink_name, target_path), true);
     /// assert_eq!(std::fs::canonicalize(expected_symlink_path)?.to_str(), expected_target_path.to_str());
-    /// # std::fs::remove_dir_all(&chroot_dir);
+    /// # let _ = std::fs::remove_dir_all(&chroot_dir);
     /// # Ok(())
     /// # } _doctest_main_src_extractors_common_rs_571_0(); }
     /// ```

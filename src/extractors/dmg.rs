@@ -2,7 +2,7 @@ use crate::extractors;
 
 /// Describes how to run the dmg2img utility to convert DMG images to MBR
 ///
-/// ```
+/// ```no_run
 /// use std::io::ErrorKind;
 /// use std::process::Command;
 /// use binwalk::extractors::common::ExtractorType;

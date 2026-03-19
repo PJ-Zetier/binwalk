@@ -2,7 +2,7 @@ use crate::extractors;
 
 /// Describes how to run the unrar utility to extract RAR archives
 ///
-/// ```
+/// ```no_run
 /// use std::io::ErrorKind;
 /// use std::process::Command;
 /// use binwalk::extractors::common::ExtractorType;

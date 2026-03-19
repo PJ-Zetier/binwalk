@@ -1,8 +1,13 @@
 use crate::common::read_input;
 use entropy::shannon_entropy;
-use plotly::layout::{Axis, Layout};
-use plotly::{ImageFormat, Plot, Scatter};
 use serde::{Deserialize, Serialize};
+
+#[cfg(not(feature = "plotting"))]
+use log::warn;
+#[cfg(feature = "plotting")]
+use plotly::layout::{Axis, Layout};
+#[cfg(feature = "plotting")]
+use plotly::{ImageFormat, Plot, Scatter};
 
 #[derive(Debug, Clone)]
 pub struct EntropyError;
@@ -61,8 +66,6 @@ pub fn plot(
     stdin: bool,
     out_file: Option<String>,
 ) -> Result<FileEntropy, EntropyError> {
-    let mut x: Vec<usize> = Vec::new();
-    let mut y: Vec<f32> = Vec::new();
     let target_file: String = file_path.into();
     let mut file_entropy = FileEntropy {
         file: target_file.clone(),
@@ -74,29 +77,45 @@ pub fn plot(
         // Calculate the entropy of each file block
         file_entropy.blocks = blocks(&file_data);
 
-        for block in &file_entropy.blocks {
-            x.push(block.start);
-            x.push(block.end);
-            y.push(block.entropy);
-            y.push(block.entropy);
+        #[cfg(feature = "plotting")]
+        {
+            let mut x: Vec<usize> = Vec::new();
+            let mut y: Vec<f32> = Vec::new();
+
+            for block in &file_entropy.blocks {
+                x.push(block.start);
+                x.push(block.end);
+                y.push(block.entropy);
+                y.push(block.entropy);
+            }
+
+            let mut plot = Plot::new();
+            let trace = Scatter::new(x, y);
+            let layout = Layout::new()
+                .title("Entropy Graph")
+                .x_axis(Axis::new().title("File Offset"))
+                .y_axis(Axis::new().title("Entropy").range(vec![0, 8]));
+
+            plot.add_trace(trace);
+            plot.set_layout(layout);
+
+            match out_file {
+                None => plot.show(),
+                Some(out_file_name) => {
+                    // TODO: Switch to plotly_static, which is the recommended way to do this
+                    #[allow(deprecated)]
+                    plot.write_image(&out_file_name, ImageFormat::PNG, 2048, 1024, 1.0);
+                }
+            }
         }
 
-        let mut plot = Plot::new();
-        let trace = Scatter::new(x, y);
-        let layout = Layout::new()
-            .title("Entropy Graph")
-            .x_axis(Axis::new().title("File Offset"))
-            .y_axis(Axis::new().title("Entropy").range(vec![0, 8]));
-
-        plot.add_trace(trace);
-        plot.set_layout(layout);
-
-        match out_file {
-            None => plot.show(),
-            Some(out_file_name) => {
-                // TODO: Switch to plotly_static, which is the recommended way to do this
-                #[allow(deprecated)]
-                plot.write_image(&out_file_name, ImageFormat::PNG, 2048, 1024, 1.0);
+        #[cfg(not(feature = "plotting"))]
+        {
+            if let Some(out_file_name) = out_file.as_ref() {
+                warn!(
+                    "plotting feature disabled; entropy image output '{}' not generated",
+                    out_file_name
+                );
             }
         }
 

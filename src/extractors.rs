@@ -141,11 +141,13 @@
 
 pub mod androidsparse;
 pub mod arcadyan;
+pub mod arj;
 pub mod autel;
 pub mod bmp;
 pub mod bzip2;
 pub mod cab;
 pub mod common;
+pub mod cramfs;
 pub mod csman;
 pub mod dahua_zip;
 pub mod dmg;

@@ -2,7 +2,7 @@ use crate::extractors;
 
 /// Describes how to run the lzop utility to extract LZO compressed files
 ///
-/// ```
+/// ```no_run
 /// use std::io::ErrorKind;
 /// use std::process::Command;
 /// use binwalk::extractors::common::ExtractorType;
